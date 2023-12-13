@@ -11,7 +11,6 @@ class WiseSage(object):
     5) A ChatModel/ LLM generates a response using prompts
     """
 
-    # Imports
     # from dotenv import load_dotenv, find_dotenv
 
     # load_dotenv(find_dotenv())
@@ -87,7 +86,7 @@ class WiseSage(object):
         from langchain.text_splitter import RecursiveCharacterTextSplitter
 
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=20, chunk_overlap=5, add_start_index=True
+            chunk_size=100, chunk_overlap=20, add_start_index=True
         )
         all_splits = text_splitter.split_documents(documents)
             # For the variable documents, insert instead the variable name for the Documents
@@ -97,8 +96,66 @@ class WiseSage(object):
 
 
     """
+    The following decorator and methods are included to prevent this program from hitting the rate limits
+    """
+    # imports
+    import random
+    import time
+
+    import openai
+    from openai import OpenAI
+    client = OpenAI(api_key = OPENAI_API_KEY)
+
+    # define a retry decorator
+    def retry_with_exponential_backoff(
+        func,
+        initial_delay: float = 1,
+        exponential_base: float = 2,
+        jitter: bool = True,
+        max_retries: int = 10,
+        errors: tuple = (openai.RateLimitError,),
+    ):
+        """Retry a function with exponential backoff."""
+
+        def wrapper(*args, **kwargs):
+            # Initialize variables
+            num_retries = 0
+            delay = initial_delay
+
+            # Loop until a successful response or max_retries is hit or an exception is raised
+            while True:
+                try:
+                    return func(*args, **kwargs)
+
+                # Retry on specified errors
+                except errors as e:
+                    # Increment retries
+                    num_retries += 1
+
+                    # Check if max retries has been reached
+                    if num_retries > max_retries:
+                        raise Exception(
+                            f"Maximum number of retries ({max_retries}) exceeded."
+                        )
+
+                    # Increment the delay
+                    delay *= exponential_base * (1 + jitter * random.random())
+
+                    # Sleep for the delay
+                    time.sleep(delay)
+
+                # Raise exceptions for any errors not specified
+                except Exception as e:
+                    raise e
+
+        return wrapper
+
+
+
+    """
     STEP 3: Store the splitted data using Embeddings and Vector Stores
     """
+    @retry_with_exponential_backoff
     def StoreData(self, all_splits, text):
         # Using Chroma Vectorstore and OpenAIEmbeddings model
         from langchain.vectorstores import Chroma
@@ -133,11 +190,21 @@ class WiseSage(object):
     """
     STEP 4: Given a user input, retrieve the relevant splits from storage using a Splitter
     """
+    @retry_with_exponential_backoff
     def RetrieveData(self, inputQuestion, vectorstore):
         # For any Vector Store
+        retriever = vectorstore.as_retriever(search_type="similarity")
+        # retriever is VectorStoreRetriever object. Its relevant splits can be extracted with the line of code below
+        relevant_splits = retriever.get_relevant_documents(inputQuestion)
+        print("The number of relevant splits in the retriver is ", len(relevant_splits))
+        for split_number in range(len(relevant_splits)):
+            print("The page content of split ", split_number, " is ", relevant_splits[split_number].page_content)
+        return retriever
+        """
         relevantSplits = vectorstore.similarity_search(inputQuestion)
             # relevantSplits is an array of documents, where each document contains the page content and metadata with page number
         return relevantSplits
+        """
 
         """
         # For asynchronous operations (STEPS 3 and 4 together)
@@ -166,16 +233,17 @@ class WiseSage(object):
     """
     STEP 5: A ChatModel/ LLM generates a response using prompts
     """
-    def GenerateResponse(self, inputQuestion, documents, relevantSplits):
+    @retry_with_exponential_backoff
+    def GenerateResponse(self, inputQuestion, documents, retriever):
         from langchain.chat_models import ChatOpenAI
         from langchain import hub
 
-        chat_llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
+        chat_llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, openai_api_key = OPENAI_API_KEY)
 
         # Loading a prompt from LangChain prompt hub
         prompt = hub.pull("rlm/rag-prompt")
         prompt.invoke(
-            {"context": "filler context", "question": inputQuestion}
+            {"context": "None", "question": inputQuestion}
         ).to_string()
 
         # LCEL Runnable protocol to define the chain
@@ -186,7 +254,7 @@ class WiseSage(object):
             return "\n\n".join(doc.page_content for doc in documents)
 
         rag_chain = (
-            {"context": relevantSplits | format_docs, "question": RunnablePassthrough()}
+            {"context": retriever | format_docs, "question": RunnablePassthrough()}
             | prompt
             | chat_llm
             | StrOutputParser()
@@ -200,15 +268,21 @@ class WiseSage(object):
         someText = "Test. Abdulrahman is faster than Ameer"
         inputQuestion = input("Please type your question and click Enter.")
         documents = self.LoadData(filepath)
+        # print("Type for documents is ", type(documents))
         split_data = self.SplitData(documents)
+        # print("Type for split_data is ", type(split_data))
         vectorstore = self.StoreData(split_data, someText)
-        relevantSplits = self.RetrieveData(inputQuestion, vectorstore)
-        self.GenerateResponse(inputQuestion, documents, relevantSplits)
+        # print("Type for vectorstore is ", type(vectorstore))
+        retriever = self.RetrieveData(inputQuestion, vectorstore)
+        # print("Type for relevantSplits is ", type(retriever))
+        self.GenerateResponse(inputQuestion, documents, retriever)
+        # cleanup
+        vectorstore.delete_collection()
 
 
 
 
 if __name__ == "__main__":
-    print("In the main method")
+    # print("In the main method")
     beginner_learner = WiseSage()
     beginner_learner.main()
