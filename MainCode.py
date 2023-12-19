@@ -11,10 +11,6 @@ class WiseSage(object):
     5) A ChatModel/ LLM generates a response using prompts
     """
 
-    # from dotenv import load_dotenv, find_dotenv
-
-    # load_dotenv(find_dotenv())
-
     """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
     The below lines are for when I finally get LangSmith, which helps
     inspect what is happening inside chains and agents
@@ -112,7 +108,7 @@ class WiseSage(object):
         initial_delay: float = 1,
         exponential_base: float = 2,
         jitter: bool = True,
-        max_retries: int = 10,
+        max_retries: int = 20,
         errors: tuple = (openai.RateLimitError,),
     ):
         """Retry a function with exponential backoff."""
@@ -196,9 +192,7 @@ class WiseSage(object):
         retriever = vectorstore.as_retriever(search_type="similarity")
         # retriever is VectorStoreRetriever object. Its relevant splits can be extracted with the line of code below
         relevant_splits = retriever.get_relevant_documents(inputQuestion)
-        print("The number of relevant splits in the retriver is ", len(relevant_splits))
-        for split_number in range(len(relevant_splits)):
-            print("The page content of split ", split_number, " is ", relevant_splits[split_number].page_content)
+        # print("The number of relevant splits in the retriver is ", len(relevant_splits))
         return retriever
         """
         relevantSplits = vectorstore.similarity_search(inputQuestion)
@@ -234,48 +228,110 @@ class WiseSage(object):
     STEP 5: A ChatModel/ LLM generates a response using prompts
     """
     @retry_with_exponential_backoff
-    def GenerateResponse(self, inputQuestion, documents, retriever):
+    def GenerateResponse(self, inputQuestion, retriever):
         from langchain.chat_models import ChatOpenAI
         from langchain import hub
 
         chat_llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, openai_api_key = OPENAI_API_KEY)
 
-        # Loading a prompt from LangChain prompt hub
-        prompt = hub.pull("rlm/rag-prompt")
-        prompt.invoke(
-            {"context": "None", "question": inputQuestion}
-        ).to_string()
-
-        # LCEL Runnable protocol to define the chain
+        
+        # Creating a custom prompt for memory incorporation
+        from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
         from langchain.schema import StrOutputParser
         from langchain_core.runnables import RunnablePassthrough
 
-        def format_docs(documents):
-            return "\n\n".join(doc.page_content for doc in documents)
-
-        rag_chain = (
-            {"context": retriever | format_docs, "question": RunnablePassthrough()}
-            | prompt
-            | chat_llm
-            | StrOutputParser()
+        
+        condense_q_system_prompt = "Given a chat history and the latest user question \
+            which might reference the chat history, formulate a standalone question \
+            which can be understood without the chat history. Do NOT answer the question, \
+            just reformulate it if needed and otherwise return it as is."
+        # MessagesPlaceholder will be replaced by the content in the variable in parenthesis once invoked.
+        condense_q_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", condense_q_system_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("human", inputQuestion),
+            ]
         )
-        for chunk in rag_chain.stream(inputQuestion):
-            print(chunk, end="", flush=True)
+        condense_q_chain = condense_q_prompt | chat_llm | StrOutputParser()
+
+        # The following is the prompt for the first message in the chat, when there's no chat history
+        qa_system_prompt = "You are an assistant for question-answering tasks. \
+            Use the following pieces of retrieved context to answer the question. \
+            If you don't know the answer, just say that you don't know. \
+            Keep the answer concise. \
+            End all responses with I have spoken \
+            Context: {context} \
+            Answer:"
+        qa_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", qa_system_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("human", inputQuestion),
+            ]
+        )
+
+        # The following decides which question should be used depending on if there's a chat history or not
+        def condense_question(input: dict):
+            if not (input["chat_history"] == []):
+                # print("input[\"chat_history\"] is ", input["chat_history"])
+                condensed_question = condense_q_chain.invoke(
+                    {
+                        "chat_history": self.chat_history, "question": inputQuestion
+                    }
+                )
+                # print("Inside condense_question, the condensed question is ", condensed_question)
+                return condensed_question
+            else:
+                return input["question"]
+
+        # Now the LCEL Runnable protocol which defines the chain
+        # RunnableLambda is like a lambda expression in Java.
+        # RunnableLambda(lambda x: x+1) or just lambda x: x+1 is a function which takes in x and returns x+1
+        # The chain is a langchain_core.runnables.base.Runnable, which likely is either a RunnableSequence or RunnableParallel
+        # RunnableSequence invokes a series of runnables sequentially using the | operator or passing a list of runnables to RunnableSequence
+        # RunnableParallel invokes runnables concurrently using a dict literal within a sequence or passing a dict with runnable value entries to RunnableParallel
+        # doing runnable.invoke() will generate a RunnableSequence while runnable.batch([]) will generate a RunnableParallel
+        # Below, rag_chain is actually a RunnableSequence, though it might seem like a RunnableParallel
+        # RunnablePassthrough() allows inputs to pass through unchanged. It's also capable of adding new keys to the output if the input is a dict
+        #   To add new keys, use RunnablePassthrouh.assign(new_key = new_value)
+        def format_docs(retriever_input):
+            return "\n\n".join(doc.page_content for doc in retriever_input)    
+        
+        rag_chain = (
+            RunnablePassthrough.assign(context=condense_question | retriever | format_docs)
+            | qa_prompt
+            | chat_llm
+        )
+
+        # Updating the chat history
+        from langchain_core.messages import HumanMessage
+        # for chunk in rag_chain.stream(inputQuestion):
+            # print(chunk, end="", flush=True)
+        ai_msg = rag_chain.invoke({"question": inputQuestion, "chat_history": self.chat_history}) # type is AIMessage
+        self.chat_history.extend([HumanMessage(content=inputQuestion), ai_msg])
+        print(ai_msg)
+        # print("The rag_chain is ", rag_chain)
+
 
 
     def main(self):
         filepath = "testData.pdf"
         someText = "Test. Abdulrahman is faster than Ameer"
-        inputQuestion = input("Please type your question and click Enter.")
-        documents = self.LoadData(filepath)
-        # print("Type for documents is ", type(documents))
-        split_data = self.SplitData(documents)
-        # print("Type for split_data is ", type(split_data))
-        vectorstore = self.StoreData(split_data, someText)
-        # print("Type for vectorstore is ", type(vectorstore))
-        retriever = self.RetrieveData(inputQuestion, vectorstore)
-        # print("Type for relevantSplits is ", type(retriever))
-        self.GenerateResponse(inputQuestion, documents, retriever)
+        inputQuestion = "Y"
+        self.chat_history = []
+        while inputQuestion.upper() == "Y":
+            inputQuestion = input("Please type your question and click Enter.")
+            documents = self.LoadData(filepath)
+            # print("Type for documents is ", type(documents))
+            split_data = self.SplitData(documents)
+            # print("Type for split_data is ", type(split_data))
+            vectorstore = self.StoreData(split_data, someText)
+            # print("Type for vectorstore is ", type(vectorstore))
+            retriever = self.RetrieveData(inputQuestion, vectorstore)
+            # print("Type for relevantSplits is ", type(retriever))
+            self.GenerateResponse(inputQuestion, retriever)
+            inputQuestion = input("Would you like to ask another question [Y/ N]?")
         # cleanup
         vectorstore.delete_collection()
 
