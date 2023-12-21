@@ -1,4 +1,5 @@
 OPENAI_API_KEY = "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"
+from langchain.embeddings import OpenAIEmbeddings
 
 class WiseSage(object):
 
@@ -82,7 +83,7 @@ class WiseSage(object):
         from langchain.text_splitter import RecursiveCharacterTextSplitter
 
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=100, chunk_overlap=20, add_start_index=True
+            chunk_size=300, chunk_overlap=60, add_start_index=True
         )
         all_splits = text_splitter.split_documents(documents)
             # For the variable documents, insert instead the variable name for the Documents
@@ -149,36 +150,43 @@ class WiseSage(object):
 
 
     """
-    STEP 3: Store the splitted data using Embeddings and Vector Stores
+    STEP 3: Save to disk the splitted data using Embeddings and Vector Stores
     """
     @retry_with_exponential_backoff
-    def StoreData(self, all_splits, text):
+    def StoreData(self, all_splits):
+
         # Using Chroma Vectorstore and OpenAIEmbeddings model
         from langchain.vectorstores import Chroma
         from langchain.embeddings import OpenAIEmbeddings
-        chroma_vectorstore = Chroma.from_documents(documents=all_splits, embedding=OpenAIEmbeddings(openai_api_key = OPENAI_API_KEY))
-        return chroma_vectorstore
-
+        embed = OpenAIEmbeddings(openai_api_key = OPENAI_API_KEY)
+        vectorstore = Chroma.from_documents(documents=all_splits, embedding=embed, persist_directory = "chroma_vectorstore")
+        # cleanup
+        # vectorstore.delete_collection()
+        # return embed, vectorstore
+        
+        
+        
         """
-        # Using Ollama Embeddings
-        from langchain.embeddings import OllamaEmbeddings
-        ollama_embeddings = OllamaEmbeddings()
-        query_result = ollama_embeddings.embed_query(text)
-            # text can be either an individual text, or a list of texts
-        return query_result
+        from langchain.indexes import SQLRecordManager, index
+        collection_name = "religious_works"
+        chroma_vectorstore = Chroma(es_url = "http://localhost:9200", index_name = collection_name, embedding=OpenAIEmbeddings(openai_api_key = OPENAI_API_KEY))
+        namespace = f"Chroma/{collection_name}"
+        record_manager = SQLRecordManager(
+            namespace, db_url="sqlite:///record_manager_cache.sql"
+        )
+        record_manager.create_schema()
 
-        # Using OpenAI Embeddings
-        from langchain.embeddings import OpenAIEmbeddings
-        open_ai_embeddings = OpenAIEmbeddings()
-        query_result = open_ai_embeddings.embed_query(text)
-            # text can be either an individual text, or a list of texts
-        return query_result
-
-        # Using Facebook AI Similarity Search (FAISS)
-        # Don't forget to install the FAISS library with "pip install faiss-cpu"
-        from langchain.vectorstores import FAISS
-        faiss_vectorstore = FAISS.from_documents(documents=all_splits, embedding=OpenAIEmbeddings())
-        return faiss_vectorstore
+        # Hacky helper method to clear content.
+        # We essentially index into the vectorstore, but with an empty list of split documents
+        def _clear():
+            index([], record_manager, chroma_vectorstore, cleanup="full", source_id_key="source")
+        _clear()
+        # Indexing all the documents into the record_manager
+        # If cleanup="full" or "indexed", when a source file is modified, all Documents associated with that
+            # source file are deleted and replaced with newer versions. In "full", when a split Document isn't listed
+            # in the first parameter in index(), that Document is deleted from the vectorstore; with "indexed", the
+            # Document doesn't immediately get deleted
+        index(all_splits, record_manager, chroma_vectorstore, cleanup="full", source_id_key="source")
         """
 
 
@@ -187,11 +195,13 @@ class WiseSage(object):
     STEP 4: Given a user input, retrieve the relevant splits from storage using a Splitter
     """
     @retry_with_exponential_backoff
-    def RetrieveData(self, inputQuestion, vectorstore):
+    def RetrieveData(self, inputQuestion, embedding):
+        from langchain.vectorstores import Chroma
         # For any Vector Store
-        retriever = vectorstore.as_retriever(search_type="similarity")
+        retriever = Chroma(persist_directory ="chroma_vectorstore", embedding_function = embedding).as_retriever(search="similarity_search")
         # retriever is VectorStoreRetriever object. Its relevant splits can be extracted with the line of code below
-        relevant_splits = retriever.get_relevant_documents(inputQuestion)
+        # relevant_splits = retriever.get_relevant_documents(inputQuestion)
+        # print("The page content in the first relevant split is ", relevant_splits[0].page_content)
         # print("The number of relevant splits in the retriver is ", len(relevant_splits))
         return retriever
         """
@@ -316,24 +326,26 @@ class WiseSage(object):
 
 
     def main(self):
-        filepath = "testData.pdf"
-        someText = "Test. Abdulrahman is faster than Ameer"
-        inputQuestion = "Y"
         self.chat_history = []
-        while inputQuestion.upper() == "Y":
-            inputQuestion = input("Please type your question and click Enter.")
-            documents = self.LoadData(filepath)
-            # print("Type for documents is ", type(documents))
-            split_data = self.SplitData(documents)
-            # print("Type for split_data is ", type(split_data))
-            vectorstore = self.StoreData(split_data, someText)
-            # print("Type for vectorstore is ", type(vectorstore))
-            retriever = self.RetrieveData(inputQuestion, vectorstore)
-            # print("Type for relevantSplits is ", type(retriever))
-            self.GenerateResponse(inputQuestion, retriever)
-            inputQuestion = input("Would you like to ask another question [Y/ N]?")
-        # cleanup
-        vectorstore.delete_collection()
+        embedding = OpenAIEmbeddings(openai_api_key = OPENAI_API_KEY)
+        while True:
+            procedure = input("Enter 1 for creating a vectorstore. Enter 2 for asking a question.")
+            if procedure == "1":
+                filepaths = input("Enter the name(s) of the file(s) you want to be stored in a vectorestore.")
+                filepaths = filepaths.split()
+                documents = []
+                for filepath in filepaths:
+                    documents.extend(self.LoadData(filepath))
+                split_data = self.SplitData(documents)
+                self.StoreData(split_data)
+                print("Done generating the vectorstore.")
+            elif procedure == "2":
+                inputQuestion = input("Please type your question and click Enter.")
+                retriever = self.RetrieveData(inputQuestion, embedding)
+                self.GenerateResponse(inputQuestion, retriever)
+            else:
+                break
+        print("Thank you for using this chatbot! Have a good day!")
 
 
 
