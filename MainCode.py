@@ -11,6 +11,12 @@ class WiseSage(object):
     4) Given a user input, retrieve the relevant splits from storage using a Splitter
     5) A ChatModel/ LLM generates a response using prompts
     """
+    # pip install langchain
+    # pip install openai
+    # pip install chromadb
+    # pip install tiktoken
+    # pip install unstructured
+    # pip install pypdf
 
     """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
     The below lines are for when I finally get LangSmith, which helps
@@ -25,54 +31,62 @@ class WiseSage(object):
     STEP 1: Load the data using DataLoaders. This will generate Documents
     """
     def LoadData(self, filepath):
+        length = len(filepath)
+        filepath_backwards = filepath[::-1]
+        index = filepath_backwards.find('.')
+        file_format = filepath[length-index:length]
+        if file_format == "csv":
+            print("Detected .csv")
+            # Load in CSV data using a CSV Loader
+            from langchain.document_loaders.csv_loader import CSVLoader
+            csv_loader = CSVLoader(file_path=filepath)
+            csv_data = csv_loader.load()
+            return csv_data
+        elif file_format == "py":
+            print("Detected .py")
+            # Load Python source code
+            from langchain.document_loaders import PythonLoader
+            python_loader = PythonLoader(filepath)
+            python_data = python_loader.load()
+            return python_data
+        elif file_format == "html":
+            print("Detected .html")
+            # Load HTML documents
+            from langchain.document_loaders import UnstructuredHTMLLoader
+            html_loader = UnstructuredHTMLLoader(filepath)
+            html_data = html_loader.load()
+            return html_data
+        elif file_format == "pdf":
+            print("Detected .pdf")
+            # Load PDF files
+            from langchain.document_loaders import PyPDFLoader
+            pdf_loader = PyPDFLoader(filepath)
+            pdf_pages = pdf_loader.load_and_split()
+                # pdf_pages is an array of documents, where each document contains the page content and metadata with page number
+            return pdf_pages
+        elif file_format == "txt":
+            print("Detected .txt")
+             # Load files in a directory
+            from langchain.document_loaders import TextLoader
+            text_loader = TextLoader(filepath)
+            text_data = text_loader.load()
+            return text_data            
+        else:
+            print("Detected something unfamiliar")
+            # Load all .txt files in a Directory
+            from langchain.document_loaders import TextLoader
+            from langchain.document_loaders import DirectoryLoader
+            directory_loader = DirectoryLoader(filepath, glob="**/*.txt", loader_cls=TextLoader, silent_errors = True)
+                # silent_errors = True skips the files which can't be loaded without generating errors
+            directory_data = directory_loader.load()
+            return directory_data
         """
-        # Load in CSV data using a CSV Loader
-        from langchain.document_loaders.csv_loader import CSVLoader
-        csv_loader = CSVLoader(file_path=filepath)
-        csv_data = csv_loader.load()
-        return csv_data
-
-        # Load files in a directory
-        from langchain.document_loaders import TextLoader
-        directory_loader = DirectoryLoader(filepath, glob="**/*.md", loader_cls=TextLoader, silent_errors = True)
-            # silent_errors = True skips the files which can't be loaded without generating errors
-        directory_data = directory_loader.load()
-        return directory_data
-
-        # Load Python source code
-        from langchain.document_loaders import PythonLoader
-        text_loader_kwargs={'autodetect_encoding': True}
-        python_loader = DirectoryLoader(filepath, glob="**/*.py", loader_cls=PythonLoader, loader_kwargs=text_loader_kwargs)
-            # The autodetect_encoding allows the TextLoader to auto detect the encodings of the files before generating errors
-        python_data = python_loader.load()
-        return python_data
-
-        # Load HTML documents
-        from langchain.document_loaders import UnstructuredHTMLLoader
-        html_loader = UnstructuredHTMLLoader(filepath)
-        html_data = html_loader.load()
-        return html_data
-
         # Load HTML with BeautifulSoup4
         from langchain.document_loaders import BSHTMLLoader
         html_bs4_loader = BSHTMLLoader(filepath)
         html_bs4_data = html_bs4_loader.load()
         return html_bs4_data
-
-        # Load Markdown files
-        from langchain.document_loaders import UnstructuredMarkdownLoader
-        md_path = filepath
-        md_loader = UnstructuredMarkdownLoader(md_path)
-        md_data = md_loader.load()
-        return md_data
         """
-
-        # Load PDF files
-        from langchain.document_loaders import PyPDFLoader
-        pdf_loader = PyPDFLoader(filepath)
-        pdf_pages = pdf_loader.load_and_split()
-            # pdf_pages is an array of documents, where each document contains the page content and metadata with page number
-        return pdf_pages
 
 
 
@@ -331,7 +345,7 @@ class WiseSage(object):
         while True:
             procedure = input("Enter 1 for creating a vectorstore. Enter 2 for asking a question.")
             if procedure == "1":
-                filepaths = input("Enter the name(s) of the file(s) you want to be stored in a vectorestore.")
+                filepaths = input("Enter the name(s) of the file(s) you want to be stored in a vectorestore.\n Supported file types are .csv, .py, .html, .pdf, and .txt")
                 filepaths = filepaths.split()
                 documents = []
                 for filepath in filepaths:
