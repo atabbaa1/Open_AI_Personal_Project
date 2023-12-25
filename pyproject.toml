@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Open_AI_Custom_Chatbot"
+version = "1.0.0"
+authors = [
+  { name="Abdulrahman Tabbaa", email="tabbaa.abdulrahman1@hotmail.com" },
+]
+description = "A chatbot which can answer questions based on custom, passed in data."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+  "langchain",
+  "openai",
+  "chromadb",
+  "tiktoken",
+  "unstructured",
+  "pypdf",
+]
+
+[project.urls]
+Homepage = "https://github.com/atabbaa1/Open_AI_Personal_Project"
+Issues = "https://github.com/atabbaa1/Open_AI_Personal_Project"

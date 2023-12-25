@@ -1,0 +1,4 @@
+# File types to ignore
+build/
+dist/
+*.egg-info/

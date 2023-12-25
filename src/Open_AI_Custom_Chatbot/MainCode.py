@@ -1,4 +1,4 @@
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = ""
 from langchain.embeddings import OpenAIEmbeddings
 
 class WiseSage(object):
