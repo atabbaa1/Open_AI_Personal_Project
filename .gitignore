@@ -4,4 +4,4 @@ dist/
 tests/
 *.egg-info/
 chroma_vectorestore/
-*/data/
+data/
