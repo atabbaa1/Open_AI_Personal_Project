@@ -11,15 +11,9 @@ class WiseSage(object):
     4) Given a user input, retrieve the relevant splits from storage using a Splitter
     5) A ChatModel/ LLM generates a response using prompts
     """
-    # pip install langchain
-    # pip install openai
-    # pip install chromadb
-    # pip install tiktoken
-    # pip install unstructured
-    # pip install pypdf
 
     """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-    The below lines are for when I finally get LangSmith, which helps
+    The below lines are for LangSmith, which helps
     inspect what is happening inside chains and agents
     """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
     LangSmith = False
@@ -100,7 +94,6 @@ class WiseSage(object):
             chunk_size=300, chunk_overlap=60, add_start_index=True
         )
         all_splits = text_splitter.split_documents(documents)
-            # For the variable documents, insert instead the variable name for the Documents
             # all_splits is an array containing the page_content and metadeta for each split
         return all_splits
 
@@ -175,33 +168,8 @@ class WiseSage(object):
         embed = OpenAIEmbeddings(openai_api_key = OPENAI_API_KEY)
         vectorstore = Chroma.from_documents(documents=all_splits, embedding=embed, persist_directory = "chroma_vectorstore")
         # cleanup
-        # vectorstore.delete_collection()
+        vectorstore.delete_collection()
         # return embed, vectorstore
-        
-        
-        
-        """
-        from langchain.indexes import SQLRecordManager, index
-        collection_name = "religious_works"
-        chroma_vectorstore = Chroma(es_url = "http://localhost:9200", index_name = collection_name, embedding=OpenAIEmbeddings(openai_api_key = OPENAI_API_KEY))
-        namespace = f"Chroma/{collection_name}"
-        record_manager = SQLRecordManager(
-            namespace, db_url="sqlite:///record_manager_cache.sql"
-        )
-        record_manager.create_schema()
-
-        # Hacky helper method to clear content.
-        # We essentially index into the vectorstore, but with an empty list of split documents
-        def _clear():
-            index([], record_manager, chroma_vectorstore, cleanup="full", source_id_key="source")
-        _clear()
-        # Indexing all the documents into the record_manager
-        # If cleanup="full" or "indexed", when a source file is modified, all Documents associated with that
-            # source file are deleted and replaced with newer versions. In "full", when a split Document isn't listed
-            # in the first parameter in index(), that Document is deleted from the vectorstore; with "indexed", the
-            # Document doesn't immediately get deleted
-        index(all_splits, record_manager, chroma_vectorstore, cleanup="full", source_id_key="source")
-        """
 
 
 
@@ -343,18 +311,18 @@ class WiseSage(object):
         self.chat_history = []
         embedding = OpenAIEmbeddings(openai_api_key = OPENAI_API_KEY)
         while True:
-            procedure = input("Enter 1 for creating a vectorstore. Enter 2 for asking a question.")
+            procedure = input("Enter 1 for inserting data. Enter 2 for asking a question about passed-in data.")
             if procedure == "1":
-                filepaths = input("Enter the name(s) of the file(s) you want to be stored in a vectorestore.\n Supported file types are .csv, .py, .html, .pdf, and .txt")
+                filepaths = input("Enter the name(s) of the file(s) you want to be stored in a vectorestore.\n Supported file types are .csv, .py, .html, .pdf, and .txt: \n")
                 filepaths = filepaths.split()
                 documents = []
                 for filepath in filepaths:
                     documents.extend(self.LoadData(filepath))
                 split_data = self.SplitData(documents)
                 self.StoreData(split_data)
-                print("Done generating the vectorstore.")
+                print("Done analyzing the passed-in data.")
             elif procedure == "2":
-                inputQuestion = input("Please type your question and click Enter.")
+                inputQuestion = input("Please type your question and click Enter:\n")
                 retriever = self.RetrieveData(inputQuestion, embedding)
                 self.GenerateResponse(inputQuestion, retriever)
             else:

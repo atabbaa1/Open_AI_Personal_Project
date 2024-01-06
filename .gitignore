@@ -1,4 +1,7 @@
 # File types to ignore
 build/
 dist/
+tests/
 *.egg-info/
+chroma_vectorestore/
+data/

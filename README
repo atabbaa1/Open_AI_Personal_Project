@@ -1,23 +1,25 @@
-If a developer wants to make some additions to the code, they need to obtain the code, including the Pipfile, and run the command
-pipenv install --dev
-The --dev installs all the dependencies needed for development only, but not for production. This includes libraries like pytest,
-which may have been installed only for development with the command
-pipenv install pytest --dev
+This custom chatbot uses local, passed in data to answer questions concerning the local data.
+Below are installation instructions:
+1) Clone the repository
+2) Open a terminal and navigate to the directory
+    $...\Open_AI_Person_Project\src\Open_AI_Custom_Chatbot>
+3) Type in the command:
+    pip install pipenv
+    Pipenv will be used to install compatible versions of python packages and sub-dependencies using the pipfile and pipfile.lock
+4) Install python dependencies using the command:
+    pipenv install --ignore-pipfile
 
-To add dependencies from a requirements.txt file to the pipfile, make sure to not be in the virtual environment (pipenv shell)
-Then, type the following command:
-pipenv install -r {location of requirements.txt file}
-To generate the dependencies from the pipfile in a way which can be added to a requirements.txt file, (the opposite of above), type the following command:
-pipenv lock -r
+(Optional) Spawn a shell in a virtual environment by typing in the command:
+    pipenv shell
+While in the virtual environment, you can leave using the command:
+    exit
+Do NOT use the command deactiviate, as this may not actually exit the virtual environment.
 
-To recreate the virtual environment using a different version of python, run the command:
-pipenv --python {new version of pythin i.e. 3.6}
+5) Open MainCode.py and insert your OPEN_API_KEY on the first line.
+6) Run MainCode.py outside or inside of a virtual environment and enjoy!
 
-To remove the virtual environment completely and recreate it from scratch using the pipfile, run the following commands outside of the virtual environment:
-pipenv --rm
-pipenv install
-
-Once you're ready to push code to production, run the following command outside of the virtual environment:
-pipenv lock
-Then, move the Pipfile.lock file to your production environment and run the command:
-pipenv install --ignore-pipfile
+To run commands inside a virtual environment without navigating into via pipenv shell, you can type the following command:
+    pipenv run {command like python MainCode.py}
+Through this method, the virtual environment never gets "activated" per say. Therefore, no exit command is necessary.
+To learn more about pipenv, pipfiles, and package installations, visit this webpage:
+https://realpython.com/pipenv-guide/#package-distribution
